@@ -1,0 +1,98 @@
+# -*- mode: perl -*-
+use alienfile;
+
+my @probe_paths = (qw{/usr/lib /usr/local/lib /opt/local/lib});
+plugin 'Probe::CBuilder' => (libs => join ' ', (map { join '', -L => $_ } @probe_paths), '-lccv');
+
+share {
+
+  requires 'Alien::GSL';
+  requires 'Alien::PNG';
+  requires 'Path::Tiny';
+  requires 'Text::ParseWords';
+
+  start_url 'https://api.github.com/repos/liuliu/ccv/tarball/stable';
+  plugin Download => (bootstrap_ssl => 1);
+  plugin Extract  => 'tar.gz';
+
+  plugin 'Build::Autoconf' => (with_pic => 0);
+
+  before build => sub {
+    my ($build)   = shift;
+    my ($src_dir) = grep {/^liuliu-ccv/} Path::Tiny->new('.')->children;
+    my @cflags    = Alien::GSL->cflags, grep { !/^\-I$/ } Text::ParseWords::shellwords(Alien::PNG->config('cflags'));
+    my @warnings  = qw(-Wno-maybe-uninitialized -Wno-pointer-to-int-cast -Wno-int-in-bool-context -Wno-unknown-warning-option);
+    my @pic       = qw(-fPIC);
+    $ENV{CFLAGS}  = $ENV{CPPFLAGS} = join ' ', @cflags, @pic, @warnings;
+    $ENV{LDFLAGS} = join ' ', Alien::GSL->libs, Alien::PNG->config('libs');
+
+    # inhibit download of sqlite db
+    $src_dir->child('samples', 'download-vgg-d-model.sh')->append({truncate => 1}, "#!/bin/bash\n");
+    my ($version) = ($src_dir =~ m{liuliu-ccv-(.*)$});
+    $build->{install_prop}->{version} ||= $version;
+    chdir $src_dir->child('lib')->absolute;
+  };
+
+  build [
+    # configure script is in lib directory, see before modifier
+    '%{configure}  CFLAGS="$CFLAGS" LDFLAGS="$LDFLAGS"',
+
+    # patch the config.mk with CFLAGS and LDFLAGS, saving LDFLAGS for use later.
+    sub {
+      my $build    = shift;
+      my $config   = Path::Tiny->new('.')->child('config.mk')->slurp;
+      my @libpaths = grep { m{^-L} } Text::ParseWords::shellwords($ENV{LDFLAGS});
+      $config =~ s{\s\-D\s(HAVE_AVCODEC|HAVE_AVFORMAT|HAVE_FFTW3|HAVE_SWSCALE)}{}g;
+      $config =~ s{\s\-l(avcodec|avformat|swscale|fftw3f|fftw3)}{}g;
+      $config =~ s{^(CFLAGS\s:=)\s?(.*)$}{$1 $ENV{CFLAGS} $2}m;
+      $config =~ s{^(LDFLAGS\s:=)\s?(.*)$}{$1 @libpaths $2}m;
+      $build->{install_prop}{libccv_ldflags} = join ' ', @libpaths, $2;
+      Path::Tiny->new('.')->child('config.mk')->spew($config);
+      warn $config;
+    },
+
+    # make the library in lib
+    '%{make} libccv.a',
+
+    # make the binaries
+    # N.B. -lccv _before_ other LDFLAGS such as -lm to help linker
+    # See also https://sourceware.org/bugzilla/show_bug.cgi?id=20539 in case that applies.
+    '%{make} -C ../bin LDFLAGS="-L../lib -lccv %{.install.libccv_ldflags}"',
+
+    # There's no install target
+    sub {
+      my ($build, @dirs) = @_;
+      return unless my $destdir = $ENV{DESTDIR};
+      my $destdir_abs = Path::Tiny->new($destdir)->child($build->install_prop->{prefix});
+
+      push @dirs, $destdir_abs->child($_)->stringify for (qw{include lib bin});
+      my %fileset = (
+        (map { $_ => Path::Tiny->new('include')->child($_)->stringify } qw{ccv.h}),
+        (map { $_ => Path::Tiny->new('lib')->child($_)->stringify } qw{libccv.a}),
+        (
+          map { ("../bin/$_" => Path::Tiny->new('bin')->child($_)->stringify) } (
+            qw{aflw bbfcreate bbfdetect bbffmt cifar-10 cnnclassify dpmcreate dpmdetect icfcreate icfdetect},
+            qw{icfoptimize image-net msermatch scdcreate scddetect siftmatch swtcreate swtdetect tld}
+          )
+        ),
+      );
+      Alien::Build::CommandSequence->new(
+        (map { join ' ', '%{install} -d', $_ } @dirs),
+        (map { join ' ', '%{install} -c', $_, $destdir_abs->child($fileset{$_})->stringify } sort keys %fileset),
+      )->execute($build);
+    }
+  ];
+
+  after gather => sub {
+    my ($build, @cflags, @libs) = shift;
+    my $runtime = $build->{runtime_prop};
+    my $prefix  = Path::Tiny->new($runtime->{prefix});
+    push @cflags, join '', -I => $prefix->child('include')->stringify;
+    push @libs,   join '', -L => $prefix->child('lib')->stringify;
+    push @libs,   '-lccv';
+    $runtime->{cflags}  = join ' ', @cflags;
+    $runtime->{libs}    = join ' ', @libs;
+    $runtime->{version} = $build->{install_prop}->{version};
+  };
+
+}
