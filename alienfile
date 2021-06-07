@@ -48,7 +48,6 @@ share {
       $config =~ s{^(LDFLAGS\s:=)\s?(.*)$}{$1 @libpaths $2}m;
       $build->{install_prop}{libccv_ldflags} = join ' ', @libpaths, $2;
       Path::Tiny->new('.')->child('config.mk')->spew($config);
-      warn $config;
     },
 
     # make the library in lib
@@ -90,9 +89,12 @@ share {
     push @cflags, join '', -I => $prefix->child('include')->stringify;
     push @libs,   join '', -L => $prefix->child('lib')->stringify;
     push @libs,   '-lccv';
+    push @libs,   grep { m/^-l/i && !m/\$/ } Text::ParseWords::shellwords($build->{install_prop}{libccv_ldflags});
     $runtime->{cflags}  = join ' ', @cflags;
     $runtime->{libs}    = join ' ', @libs;
     $runtime->{version} = $build->{install_prop}->{version};
+    $runtime->{libccv_has_jpeg} = !!(grep { /^-ljpeg/ } @libs);
+    $runtime->{libccv_has_png}  = !!(grep { /^-lpng/ } @libs); # always true since Alien::PNG
   };
 
 }

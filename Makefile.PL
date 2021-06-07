@@ -16,13 +16,13 @@ my %WriteMakefileArgs = (
   BUILD_REQUIRES => {}
 ,
   TEST_REQUIRES  => {
-  'Test2::V0' => '0'
+  'Test2::V0' => '0.000140'
 }
 ,
   PREREQ_PM      => {
-  'Alien::Build' => '0',
-  'Alien::GSL' => '0',
-  'Alien::PNG' => '0',
+  'Alien::Build' => '2.40',
+  'Alien::GSL' => '1.03',
+  'Alien::PNG' => '0.04',
   'perl' => 'v5.20.0'
 }
 ,
