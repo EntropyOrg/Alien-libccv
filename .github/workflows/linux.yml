@@ -19,11 +19,20 @@ jobs:
     container:
       image: perl:${{ matrix.perl-version }}
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v2
       - name: perl -V
         run: perl -V
+      - name: Init cache
+        uses: actions/cache@v2
+        with:
+          path: ~/.perl-cpm/builds
+          key: ${{ runner.os }}-${{ matrix.perl-version }}-${{ hashFiles('**/cpanfile') }}
       - name: Install dependencies
-        run: cpanm -n --installdeps .
+        uses: perl-actions/install-with-cpm@stable
+        with:
+          cpanfile: "cpanfile"
+          sudo: false
       - name: Build Alien::libccv
         run: perl Makefile.PL && make
       - name: Run tests
