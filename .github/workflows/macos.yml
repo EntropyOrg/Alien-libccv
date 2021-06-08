@@ -10,13 +10,22 @@ jobs:
   perl:
     runs-on: macOS-latest
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v2
       - name: Set up Perl
         run: brew install perl
       - name: perl -V
         run: perl -V
-      - name: Install Dependencies
-        run: curl -L https://cpanmin.us | perl - --installdeps .
+      - name: Init cache
+        uses: actions/cache@v2
+        with:
+          path: ~/.perl-cpm/builds
+          key: ${{ runner.os }}-${{ hashFiles('**/cpanfile') }}
+      - name: Install dependencies
+        uses: perl-actions/install-with-cpm@stable
+        with:
+          cpanfile: "cpanfile"
+          sudo: false
       - name: Build Alien::libccv
         run: perl Makefile.PL && make
       - name: Run Tests

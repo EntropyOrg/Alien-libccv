@@ -20,8 +20,16 @@ jobs:
       - name: get the commit slug
         id: get_version
         run: echo ::set-output name=COMMIT_SLUG::${GITHUB_REF#refs/tags/}
+      - name: Init cache
+        uses: actions/cache@v2
+        with:
+          path: ~/.perl-cpm/builds
+          key: ${{ runner.os }}-5.32-${{ hashFiles('**/cpanfile') }}
       - name: Install dependencies
-        run: cpanm --installdeps -n -q .
+        uses: perl-actions/install-with-cpm@stable
+        with:
+          cpanfile: "cpanfile"
+          sudo: false
       - name: Build dist
         run: perl Makefile.PL && make manifest && make dist
       - name: Create Release
